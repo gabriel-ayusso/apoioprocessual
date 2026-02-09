@@ -1,0 +1,59 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node.js
+node_modules/
+frontend/dist/
+frontend/node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.log
+
+# Uploads (local dev)
+backend/uploads/
+uploads/
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+*.cover
