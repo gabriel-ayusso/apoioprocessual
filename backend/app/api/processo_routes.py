@@ -53,7 +53,7 @@ async def build_processo_response(processo: Processo, db: AsyncSession) -> Proce
     )
 
 
-@router.get("/", response_model=ProcessoListResponse)
+@router.get("", response_model=ProcessoListResponse)
 async def list_processos(
     status_filter: str = None,
     skip: int = 0,
@@ -94,7 +94,7 @@ async def list_processos(
     return ProcessoListResponse(processos=responses, total=total)
 
 
-@router.post("/", response_model=ProcessoResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ProcessoResponse, status_code=status.HTTP_201_CREATED)
 async def create_processo(
     request: ProcessoCreate,
     db: AsyncSession = Depends(get_db),

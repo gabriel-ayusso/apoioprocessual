@@ -11,6 +11,9 @@ pgvector==0.3.2
 # Auth
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+email-validator>=2.0.0
+httpx>=0.25.0,<0.28
 
 # OpenAI
 openai==1.51.0

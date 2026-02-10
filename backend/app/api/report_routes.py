@@ -44,7 +44,7 @@ async def list_templates():
     return TEMPLATES
 
 
-@router.get("/", response_model=ReportListResponse)
+@router.get("", response_model=ReportListResponse)
 async def list_reports(
     processo_id: UUID,
     skip: int = 0,

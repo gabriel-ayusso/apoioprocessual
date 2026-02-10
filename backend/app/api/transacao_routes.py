@@ -17,7 +17,7 @@ from app.api.deps import get_current_user, get_processo_with_access
 router = APIRouter(prefix="/transacoes", tags=["transacoes"])
 
 
-@router.get("/", response_model=TransacaoListResponse)
+@router.get("", response_model=TransacaoListResponse)
 async def list_transacoes(
     processo_id: UUID,
     categoria: Optional[str] = None,

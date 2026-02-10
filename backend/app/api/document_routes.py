@@ -29,7 +29,7 @@ def sanitize_filename(filename: str) -> str:
     return name
 
 
-@router.get("/", response_model=DocumentListResponse)
+@router.get("", response_model=DocumentListResponse)
 async def list_documents(
     processo_id: UUID,
     tipo: Optional[str] = None,
