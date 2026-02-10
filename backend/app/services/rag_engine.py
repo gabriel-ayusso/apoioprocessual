@@ -13,13 +13,14 @@ SYSTEM_PROMPT = """Voce e um assistente juridico especializado em direito de fam
 Seu papel e ajudar a analisar documentos, conversas e evidencias relacionadas a processos judiciais.
 
 REGRAS FUNDAMENTAIS:
-1. SEMPRE cite a fonte de cada afirmacao (documento, conversa, data).
+1. SEMPRE cite a fonte de cada afirmacao (documento - se possível com a página, conversa, data).
 2. Se nao houver evidencia nos documentos, diga explicitamente "Nao encontrei evidencia nos documentos fornecidos".
 3. NUNCA invente ou extrapole informacoes alem do que esta nos documentos.
 4. Quando classificar gastos, inclua o nivel de confianca (alta/media/baixa).
 5. Use linguagem clara e acessivel, nao juridiques desnecessario.
 6. Quando identificar contradicoes entre documentos, aponte ambas as versoes.
 7. Sempre que mencionar valores, indique a fonte e a data.
+8. Sempre dê prioridade para contratos e documentos assinados - eles tem mais peso do que mensagens informais.
 
 CAPACIDADES:
 - Analisar e cruzar informacoes de conversas WhatsApp, e-mails, extratos bancarios e documentos judiciais
@@ -56,12 +57,12 @@ async def search_similar_chunks(
                 d.tipo as doc_tipo,
                 d.participantes,
                 d.data_referencia,
-                1 - (c.embedding <=> :embedding::vector) as similarity
+                1 - (c.embedding <=> CAST(:embedding AS vector)) as similarity
             FROM chunks c
             JOIN documents d ON c.documento_id = d.id
             WHERE d.status = 'processed'
               AND d.processo_id = :processo_id
-            ORDER BY c.embedding <=> :embedding::vector
+            ORDER BY c.embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
         """)
         params = {
@@ -81,11 +82,11 @@ async def search_similar_chunks(
                 d.tipo as doc_tipo,
                 d.participantes,
                 d.data_referencia,
-                1 - (c.embedding <=> :embedding::vector) as similarity
+                1 - (c.embedding <=> CAST(:embedding AS vector)) as similarity
             FROM chunks c
             JOIN documents d ON c.documento_id = d.id
             WHERE d.status = 'processed'
-            ORDER BY c.embedding <=> :embedding::vector
+            ORDER BY c.embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
         """)
         params = {
@@ -137,6 +138,7 @@ async def chat(
     conversation_history: list[dict],
     db: AsyncSession,
     processo_id: UUID = None,
+    processo_contexto: str = None,
 ) -> dict:
     """RAG chat: search relevant chunks, build context, generate response."""
 
@@ -154,21 +156,45 @@ async def chat(
         messages.append({"role": msg["role"], "content": msg["content"]})
 
     # Add current query with context
-    user_message = (
-        f"Contexto dos documentos:\n{context}\n\n"
-        f"Pergunta do usuario: {query}"
-    )
+    parts = []
+    if processo_contexto:
+        parts.append(f"Contexto do processo:\n{processo_contexto}")
+    parts.append(f"Contexto dos documentos:\n{context}")
+    parts.append(f"Pergunta do usuario: {query}")
+    user_message = "\n\n".join(parts)
     messages.append({"role": "user", "content": user_message})
 
     # 4. Call LLM
     response = await openai_client.chat.completions.create(
         model=settings.CHAT_MODEL,
         messages=messages,
-        temperature=0.2,
-        max_tokens=2000,
+        temperature=1,
+        max_completion_tokens=4000,
     )
 
-    answer = response.choices[0].message.content
+    # Debug: log full response structure
+    choice = response.choices[0]
+    print(f"[RAG DEBUG] finish_reason={choice.finish_reason}")
+    print(f"[RAG DEBUG] message type={type(choice.message)}")
+    print(f"[RAG DEBUG] message keys={vars(choice.message).keys()}")
+    print(f"[RAG DEBUG] message content type={type(choice.message.content)}")
+    print(f"[RAG DEBUG] message content repr={repr(choice.message.content)[:500]}")
+    print(f"[RAG DEBUG] full message vars={vars(choice.message)}")
+
+    # Extract content — handle string, list of parts, or None
+    raw_content = choice.message.content
+    if raw_content is None:
+        answer = ""
+    elif isinstance(raw_content, list):
+        answer = "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in raw_content
+        )
+    else:
+        answer = str(raw_content)
+
+    print(f"[RAG DEBUG] final answer length={len(answer)}, first 200 chars={answer[:200]}")
+
     usage = response.usage
 
     # Cost estimation (gpt-4o-mini prices)

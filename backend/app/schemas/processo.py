@@ -9,12 +9,14 @@ class ProcessoCreate(BaseModel):
     numero: Optional[str] = None
     titulo: str
     descricao: Optional[str] = None
+    contexto: Optional[str] = None
 
 
 class ProcessoUpdate(BaseModel):
     numero: Optional[str] = None
     titulo: Optional[str] = None
     descricao: Optional[str] = None
+    contexto: Optional[str] = None
     status: Optional[str] = None
 
 
@@ -37,6 +39,7 @@ class ProcessoResponse(BaseModel):
     numero: Optional[str]
     titulo: str
     descricao: Optional[str]
+    contexto: Optional[str]
     status: str
     created_at: datetime
     updated_at: datetime

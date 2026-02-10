@@ -1,13 +1,15 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery, useQueryClient } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import {
   ArrowLeftIcon,
   DocumentTextIcon,
   TrashIcon,
   ArrowDownTrayIcon,
   MagnifyingGlassIcon,
+  PencilIcon,
 } from '@heroicons/react/24/outline'
+import { Dialog } from '@headlessui/react'
 import toast from 'react-hot-toast'
 import { documentsApi, processosApi } from '../api/client'
 import DocumentUpload from '../components/DocumentUpload'
@@ -30,6 +32,8 @@ export default function DocumentsPage() {
   const [showUpload, setShowUpload] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [tipoFilter, setTipoFilter] = useState('')
+  const [editingDoc, setEditingDoc] = useState<any>(null)
+  const [editData, setEditData] = useState({ titulo: '', tipo: '', data_referencia: '' })
   const queryClient = useQueryClient()
 
   const { data: processoData } = useQuery(
@@ -50,9 +54,44 @@ export default function DocumentsPage() {
     { enabled: !!id && searchQuery.length >= 3 }
   )
 
+  const updateMutation = useMutation(
+    ({ docId, data }: { docId: string; data: Record<string, string> }) =>
+      documentsApi.update(docId, data),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['documents', id])
+        setEditingDoc(null)
+        toast.success('Documento atualizado')
+      },
+      onError: (error: any) => {
+        toast.error(error.response?.data?.detail || 'Erro ao atualizar')
+      },
+    }
+  )
+
   const processo = processoData?.data
   const documents = docsData?.data?.documents || []
   const searchResults = searchData?.data?.results || []
+
+  const startEdit = (doc: any) => {
+    setEditingDoc(doc)
+    setEditData({
+      titulo: doc.titulo || '',
+      tipo: doc.tipo || '',
+      data_referencia: doc.data_referencia || '',
+    })
+  }
+
+  const saveEdit = () => {
+    if (editingDoc) {
+      const payload: Record<string, string> = {}
+      if (editData.titulo !== editingDoc.titulo) payload.titulo = editData.titulo
+      if (editData.tipo !== editingDoc.tipo) payload.tipo = editData.tipo
+      if (editData.data_referencia !== (editingDoc.data_referencia || ''))
+        payload.data_referencia = editData.data_referencia
+      updateMutation.mutate({ docId: editingDoc.id, data: payload })
+    }
+  }
 
   const handleDelete = async (docId: string) => {
     if (!confirm('Tem certeza que deseja excluir este documento?')) return
@@ -78,19 +117,19 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Link to={`/processos/${id}`} className="p-2 hover:bg-gray-100 rounded-lg">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center space-x-3 min-w-0">
+          <Link to={`/processos/${id}`} className="p-2 hover:bg-gray-100 rounded-lg shrink-0">
             <ArrowLeftIcon className="w-5 h-5 text-gray-600" />
           </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Documentos</h1>
-            <p className="text-gray-600">{processo?.titulo}</p>
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Documentos</h1>
+            <p className="text-gray-600 text-sm truncate">{processo?.titulo}</p>
           </div>
         </div>
         <button
           onClick={() => setShowUpload(!showUpload)}
-          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          className="px-3 py-2 sm:px-4 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 shrink-0"
         >
           {showUpload ? 'Fechar' : 'Novo Documento'}
         </button>
@@ -178,7 +217,7 @@ export default function DocumentsPage() {
           </button>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -237,6 +276,13 @@ export default function DocumentsPage() {
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end space-x-2">
                       <button
+                        onClick={() => startEdit(doc)}
+                        className="p-1 text-gray-400 hover:text-primary-600 rounded"
+                        title="Editar"
+                      >
+                        <PencilIcon className="w-5 h-5" />
+                      </button>
+                      <button
                         onClick={() => handleDownload(doc.id)}
                         className="p-1 text-gray-400 hover:text-primary-600 rounded"
                         title="Baixar"
@@ -258,6 +304,90 @@ export default function DocumentsPage() {
           </table>
         </div>
       )}
+
+      {/* Edit modal */}
+      <Dialog
+        open={!!editingDoc}
+        onClose={() => setEditingDoc(null)}
+        className="relative z-50"
+      >
+        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
+
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <Dialog.Panel className="mx-auto max-w-md w-full bg-white rounded-lg shadow-xl">
+            <div className="p-6">
+              <Dialog.Title className="text-lg font-semibold text-gray-900 mb-4">
+                Editar Documento
+              </Dialog.Title>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Titulo
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.titulo}
+                    onChange={(e) =>
+                      setEditData({ ...editData, titulo: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tipo
+                  </label>
+                  <select
+                    value={editData.tipo}
+                    onChange={(e) =>
+                      setEditData({ ...editData, tipo: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  >
+                    {Object.entries(DOC_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Data de Referencia
+                  </label>
+                  <input
+                    type="date"
+                    value={editData.data_referencia}
+                    onChange={(e) =>
+                      setEditData({ ...editData, data_referencia: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 rounded-b-lg flex justify-end space-x-3">
+              <button
+                onClick={() => setEditingDoc(null)}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={updateMutation.isLoading}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                {updateMutation.isLoading ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </Dialog.Panel>
+        </div>
+      </Dialog>
     </div>
   )
 }

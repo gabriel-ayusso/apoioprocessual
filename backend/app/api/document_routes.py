@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.config import get_settings
 from app.models.models import User, Document, Processo
-from app.schemas.document import DocumentResponse, DocumentListResponse, DocumentSearchResponse, DocumentSearchResult
+from app.schemas.document import DocumentResponse, DocumentListResponse, DocumentSearchResponse, DocumentSearchResult, DocumentUpdate
 from app.api.deps import get_current_user, get_processo_with_access
 from app.services.document_processor import process_document
 from app.services.s3_storage import S3Storage
@@ -176,6 +176,88 @@ async def get_document(
 
     # Verify access
     await get_processo_with_access(document.processo_id, db, current_user)
+
+    return document
+
+
+@router.patch("/{document_id}", response_model=DocumentResponse)
+async def update_document(
+    document_id: UUID,
+    payload: DocumentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Document).where(Document.id == document_id))
+    document = result.scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Documento nao encontrado")
+
+    # Verify access
+    await get_processo_with_access(document.processo_id, db, current_user)
+
+    # Track tipo change for financial analysis
+    old_tipo = document.tipo
+    new_tipo = payload.tipo
+
+    # Apply non-None fields
+    update_data = payload.model_dump(exclude_none=True)
+    if not update_data:
+        return document
+
+    for field, value in update_data.items():
+        setattr(document, field, value)
+
+    await db.flush()
+
+    # Propagate changes to chunk metadata_
+    metadata_updates = {}
+    if payload.titulo is not None:
+        metadata_updates["doc_titulo"] = payload.titulo
+    if payload.tipo is not None:
+        metadata_updates["doc_tipo"] = payload.tipo
+    if payload.data_referencia is not None:
+        metadata_updates["data_referencia"] = str(payload.data_referencia)
+
+    if metadata_updates:
+        import json
+        from sqlalchemy import text as sa_text
+        # Use metadata || jsonb overlay to update specific keys in one shot
+        await db.execute(
+            sa_text(
+                "UPDATE chunks SET metadata = metadata || CAST(:patch AS jsonb) WHERE documento_id = :doc_id"
+            ),
+            {"patch": json.dumps(metadata_updates), "doc_id": str(document_id)},
+        )
+
+    await db.commit()
+    await db.refresh(document)
+
+    # Run financial analysis if tipo changed to a financial type
+    financial_types = ("extrato_bancario", "comprovante")
+    if (
+        new_tipo is not None
+        and new_tipo in financial_types
+        and old_tipo not in financial_types
+        and document.status == "processed"
+    ):
+        try:
+            from app.services.financial_analyzer import FinancialAnalyzer
+
+            proc_result = await db.execute(
+                select(Processo).where(Processo.id == document.processo_id)
+            )
+            processo = proc_result.scalar_one_or_none()
+            processo_contexto = processo.contexto if processo else None
+
+            analyzer = FinancialAnalyzer(db)
+            await analyzer.analyze_document(
+                documento_id=document.id,
+                processo_id=document.processo_id,
+                processo_contexto=processo_contexto,
+            )
+        except Exception as e:
+            print(f"Financial analysis failed for document {document.id}: {e}")
 
     return document
 

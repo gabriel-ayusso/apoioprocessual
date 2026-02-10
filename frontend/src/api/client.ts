@@ -84,7 +84,7 @@ export const adminApi = {
 export const processosApi = {
   list: (status?: string, skip = 0, limit = 50) =>
     api.get('/processos', { params: { status_filter: status, skip, limit } }),
-  create: (data: { titulo: string; numero?: string; descricao?: string }) =>
+  create: (data: { titulo: string; numero?: string; descricao?: string; contexto?: string }) =>
     api.post('/processos', data),
   get: (id: string) => api.get(`/processos/${id}`),
   update: (id: string, data: Record<string, unknown>) =>
@@ -105,6 +105,8 @@ export const documentsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   get: (id: string) => api.get(`/documents/${id}`),
+  update: (id: string, data: { titulo?: string; tipo?: string; data_referencia?: string }) =>
+    api.patch(`/documents/${id}`, data),
   download: (id: string) => api.get(`/documents/${id}/download`),
   delete: (id: string) => api.delete(`/documents/${id}`),
   search: (processoId: string, query: string) =>
@@ -118,6 +120,9 @@ export const chatApi = {
   createConversation: (processoId: string, titulo?: string) =>
     api.post('/chat/conversations', { processo_id: processoId, titulo }),
   getConversation: (id: string) => api.get(`/chat/conversations/${id}`),
+  updateConversation: (id: string, titulo: string) =>
+    api.patch(`/chat/conversations/${id}`, { titulo }),
+  deleteConversation: (id: string) => api.delete(`/chat/conversations/${id}`),
   sendMessage: (conversationId: string, content: string) =>
     api.post('/chat/message', { conversation_id: conversationId, content }),
   getSources: (messageId: string) => api.get(`/chat/sources/${messageId}`),

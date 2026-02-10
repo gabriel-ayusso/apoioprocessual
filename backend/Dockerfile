@@ -6,6 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-por \
+    poppler-utils \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*

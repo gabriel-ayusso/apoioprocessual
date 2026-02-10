@@ -155,6 +155,8 @@ async def update_transacao(
     # Verify access
     await get_processo_with_access(transacao.processo_id, db, current_user)
 
+    if request.data is not None:
+        transacao.data = request.data
     if request.pagador is not None:
         transacao.pagador = request.pagador
     if request.beneficiario is not None:

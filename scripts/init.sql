@@ -26,6 +26,7 @@ CREATE TABLE processos (
     numero VARCHAR(50),                      -- numero do processo judicial
     titulo TEXT NOT NULL,
     descricao TEXT,
+    contexto TEXT,                            -- contexto detalhado do caso (injetado no RAG e analise financeira)
     status VARCHAR(20) DEFAULT 'ativo',      -- 'ativo', 'arquivado'
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT NOW(),

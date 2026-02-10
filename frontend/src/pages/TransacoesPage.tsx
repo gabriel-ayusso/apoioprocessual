@@ -27,7 +27,7 @@ const CATEGORIAS = [
 export default function TransacoesPage() {
   const { id } = useParams<{ id: string }>()
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editData, setEditData] = useState({ pagador: '', categoria: '' })
+  const [editData, setEditData] = useState({ data: '', pagador: '', categoria: '' })
   const [filterCategoria, setFilterCategoria] = useState('')
   const [filterPagador, setFilterPagador] = useState('')
   const queryClient = useQueryClient()
@@ -87,6 +87,7 @@ export default function TransacoesPage() {
   const startEdit = (transacao: any) => {
     setEditingId(transacao.id)
     setEditData({
+      data: transacao.data || '',
       pagador: transacao.pagador || '',
       categoria: transacao.categoria || '',
     })
@@ -101,13 +102,13 @@ export default function TransacoesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center space-x-4">
-        <Link to={`/processos/${id}`} className="p-2 hover:bg-gray-100 rounded-lg">
+      <div className="flex items-center space-x-3">
+        <Link to={`/processos/${id}`} className="p-2 hover:bg-gray-100 rounded-lg shrink-0">
           <ArrowLeftIcon className="w-5 h-5 text-gray-600" />
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Transacoes</h1>
-          <p className="text-gray-600">{processo?.titulo}</p>
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Transacoes</h1>
+          <p className="text-gray-600 text-sm truncate">{processo?.titulo}</p>
         </div>
       </div>
 
@@ -159,7 +160,7 @@ export default function TransacoesPage() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-3">
         <select
           value={filterCategoria}
           onChange={(e) => setFilterCategoria(e.target.value)}
@@ -198,7 +199,7 @@ export default function TransacoesPage() {
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -307,6 +308,20 @@ export default function TransacoesPage() {
               </Dialog.Title>
 
               <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Data
+                  </label>
+                  <input
+                    type="date"
+                    value={editData.data}
+                    onChange={(e) =>
+                      setEditData({ ...editData, data: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Pagador

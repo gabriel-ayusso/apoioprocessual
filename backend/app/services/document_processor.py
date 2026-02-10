@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.models.models import Document, Chunk
+from app.models.models import Document, Chunk, Processo
 from app.services.s3_storage import S3Storage
 
 settings = get_settings()
@@ -30,8 +30,18 @@ def extract_text_from_pdf(filepath: str) -> str:
     with pdfplumber.open(filepath) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
-            if text:
+            if text and text.strip():
                 text_parts.append(text)
+
+    # Se pdfplumber não extraiu texto, tentar OCR (PDF escaneado)
+    if not text_parts:
+        from pdf2image import convert_from_path
+        images = convert_from_path(filepath, dpi=300)
+        for image in images:
+            ocr_text = pytesseract.image_to_string(image, lang="por")
+            if ocr_text and ocr_text.strip():
+                text_parts.append(ocr_text)
+
     return "\n\n".join(text_parts)
 
 
@@ -237,6 +247,27 @@ async def process_document(document_id: UUID, db: AsyncSession):
 
             doc.status = "processed"
             await db.commit()
+
+            # Run financial analysis for financial documents
+            if doc.tipo in ("extrato_bancario", "comprovante"):
+                try:
+                    from app.services.financial_analyzer import FinancialAnalyzer
+
+                    # Fetch processo contexto
+                    proc_result = await db.execute(
+                        select(Processo).where(Processo.id == doc.processo_id)
+                    )
+                    processo = proc_result.scalar_one_or_none()
+                    processo_contexto = processo.contexto if processo else None
+
+                    analyzer = FinancialAnalyzer(db)
+                    await analyzer.analyze_document(
+                        documento_id=doc.id,
+                        processo_id=doc.processo_id,
+                        processo_contexto=processo_contexto,
+                    )
+                except Exception as e:
+                    print(f"Financial analysis failed for document {doc.id}: {e}")
 
         finally:
             # Clean up temp file

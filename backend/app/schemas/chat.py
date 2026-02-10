@@ -11,6 +11,10 @@ class ConversationCreate(BaseModel):
     titulo: Optional[str] = None
 
 
+class ConversationUpdate(BaseModel):
+    titulo: str
+
+
 class ConversationResponse(BaseModel):
     id: UUID
     processo_id: UUID

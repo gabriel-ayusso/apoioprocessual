@@ -13,6 +13,19 @@ from app.models.models import Transacao, Chunk
 settings = get_settings()
 openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
+
+def extract_message_content(message) -> str:
+    """Extract text content from an OpenAI message, handling string, list, or None."""
+    raw = message.content
+    if raw is None:
+        return ""
+    if isinstance(raw, list):
+        return "".join(
+            part.get("text", "") if isinstance(part, dict) else str(part)
+            for part in raw
+        )
+    return str(raw)
+
 CATEGORIES = [
     "educacao",
     "saude",
@@ -64,23 +77,28 @@ class FinancialAnalyzer:
         self,
         chunk: Chunk,
         processo_id: UUID,
+        processo_contexto: str = None,
     ) -> List[Transacao]:
         """Extract financial transactions from a text chunk using LLM."""
         prompt = EXTRACTION_PROMPT + chunk.conteudo
 
+        system_content = "Voce e um assistente especializado em extrair transacoes financeiras de extratos bancarios."
+        if processo_contexto:
+            system_content += f" Contexto do processo: {processo_contexto}"
+
         try:
             response = await openai_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=settings.PROCESSING_MODEL,
                 messages=[
-                    {"role": "system", "content": "Voce e um assistente especializado em extrair transacoes financeiras de extratos bancarios."},
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 
             import json
-            result = json.loads(response.choices[0].message.content)
+            result = json.loads(extract_message_content(response.choices[0].message))
 
             transacoes = []
             for t in result.get("transacoes", []):
@@ -129,6 +147,7 @@ class FinancialAnalyzer:
         self,
         documento_id: UUID,
         processo_id: UUID,
+        processo_contexto: str = None,
     ) -> List[Transacao]:
         """Analyze all chunks of a document for financial transactions."""
         from sqlalchemy import select
@@ -140,7 +159,7 @@ class FinancialAnalyzer:
 
         all_transacoes = []
         for chunk in chunks:
-            transacoes = await self.extract_transactions_from_chunk(chunk, processo_id)
+            transacoes = await self.extract_transactions_from_chunk(chunk, processo_id, processo_contexto=processo_contexto)
             all_transacoes.extend(transacoes)
 
         # Save to database
@@ -154,9 +173,11 @@ class FinancialAnalyzer:
     async def categorize_transaction(
         self,
         transacao: Transacao,
+        processo_contexto: str = None,
     ) -> Transacao:
         """Re-categorize a transaction using LLM."""
-        prompt = f"""Categorize a seguinte transacao bancaria:
+        contexto_prefix = f"Contexto do processo: {processo_contexto}\n\n" if processo_contexto else ""
+        prompt = f"""{contexto_prefix}Categorize a seguinte transacao bancaria:
 
 Descricao: {transacao.descricao}
 Valor: R$ {transacao.valor}
@@ -173,16 +194,16 @@ Responda com um JSON no formato:
 
         try:
             response = await openai_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=settings.PROCESSING_MODEL,
                 messages=[
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 
             import json
-            result = json.loads(response.choices[0].message.content)
+            result = json.loads(extract_message_content(response.choices[0].message))
 
             transacao.categoria = result.get("categoria", transacao.categoria)
             transacao.pagador = result.get("pagador", transacao.pagador)

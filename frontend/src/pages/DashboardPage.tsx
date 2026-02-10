@@ -30,7 +30,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Quick stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center">
             <div className="p-3 bg-primary-100 rounded-lg">

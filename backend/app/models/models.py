@@ -42,6 +42,7 @@ class Processo(Base):
     numero: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     titulo: Mapped[str] = mapped_column(Text, nullable=False)
     descricao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contexto: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="ativo")
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

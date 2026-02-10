@@ -14,6 +14,12 @@ class DocumentUpload(BaseModel):
     data_referencia: Optional[date] = None
 
 
+class DocumentUpdate(BaseModel):
+    titulo: Optional[str] = None
+    tipo: Optional[str] = None
+    data_referencia: Optional[date] = None
+
+
 class DocumentResponse(BaseModel):
     id: UUID
     processo_id: UUID

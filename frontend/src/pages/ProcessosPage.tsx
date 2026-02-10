@@ -11,6 +11,7 @@ export default function ProcessosPage() {
   const [titulo, setTitulo] = useState('')
   const [numero, setNumero] = useState('')
   const [descricao, setDescricao] = useState('')
+  const [contexto, setContexto] = useState('')
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery('processos', () =>
@@ -18,7 +19,7 @@ export default function ProcessosPage() {
   )
 
   const createMutation = useMutation(
-    (data: { titulo: string; numero?: string; descricao?: string }) =>
+    (data: { titulo: string; numero?: string; descricao?: string; contexto?: string }) =>
       processosApi.create(data),
     {
       onSuccess: () => {
@@ -27,6 +28,7 @@ export default function ProcessosPage() {
         setTitulo('')
         setNumero('')
         setDescricao('')
+        setContexto('')
         toast.success('Processo criado com sucesso!')
       },
       onError: (error: any) => {
@@ -56,6 +58,7 @@ export default function ProcessosPage() {
       titulo,
       numero: numero || undefined,
       descricao: descricao || undefined,
+      contexto: contexto || undefined,
     })
   }
 
@@ -217,6 +220,19 @@ export default function ProcessosPage() {
                       rows={3}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                       placeholder="Descricao do processo"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Contexto
+                    </label>
+                    <textarea
+                      value={contexto}
+                      onChange={(e) => setContexto(e.target.value)}
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      placeholder="Descreva o caso em detalhe: partes envolvidas, tipo de acao, fatos relevantes, etc. Este texto sera usado como contexto nas analises de IA."
                     />
                   </div>
                 </div>

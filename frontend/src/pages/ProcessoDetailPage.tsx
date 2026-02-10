@@ -1,15 +1,26 @@
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import {
   DocumentTextIcon,
   ChatBubbleLeftRightIcon,
   CurrencyDollarIcon,
   ArrowLeftIcon,
+  PencilIcon,
+  CheckIcon,
+  XMarkIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@heroicons/react/24/outline'
+import toast from 'react-hot-toast'
 import { processosApi, documentsApi } from '../api/client'
 
 export default function ProcessoDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const queryClient = useQueryClient()
+  const [editingContexto, setEditingContexto] = useState(false)
+  const [contextoExpanded, setContextoExpanded] = useState(false)
+  const [contextoDraft, setContextoDraft] = useState('')
 
   const { data: processoData, isLoading } = useQuery(
     ['processo', id],
@@ -21,6 +32,20 @@ export default function ProcessoDetailPage() {
     ['documents', id],
     () => documentsApi.list(id!, undefined, 0, 5),
     { enabled: !!id }
+  )
+
+  const updateContextoMutation = useMutation(
+    (contexto: string) => processosApi.update(id!, { contexto }),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['processo', id])
+        setEditingContexto(false)
+        toast.success('Contexto salvo!')
+      },
+      onError: () => {
+        toast.error('Erro ao salvar contexto')
+      },
+    }
   )
 
   const processo = processoData?.data
@@ -79,6 +104,97 @@ export default function ProcessoDetailPage() {
         </div>
       )}
 
+      {/* Contexto */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+        <button
+          onClick={() => !editingContexto && setContextoExpanded(!contextoExpanded)}
+          className="w-full px-6 py-4 flex items-center justify-between text-left"
+        >
+          <h2 className="text-sm font-semibold text-gray-500 uppercase">
+            Contexto do Processo
+          </h2>
+          <div className="flex items-center space-x-1">
+            {!editingContexto && (
+              <span
+                role="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setContextoDraft(processo.contexto || '')
+                  setContextoExpanded(true)
+                  setEditingContexto(true)
+                }}
+                className="p-1 text-gray-400 hover:text-gray-600 rounded"
+              >
+                <PencilIcon className="w-4 h-4" />
+              </span>
+            )}
+            {!editingContexto && (
+              contextoExpanded
+                ? <ChevronUpIcon className="w-4 h-4 text-gray-400" />
+                : <ChevronDownIcon className="w-4 h-4 text-gray-400" />
+            )}
+          </div>
+        </button>
+
+        {/* Preview (collapsed) */}
+        {!contextoExpanded && !editingContexto && (
+          <div className="px-6 pb-4 -mt-2">
+            {processo.contexto ? (
+              <p className="text-gray-500 text-sm truncate">{processo.contexto}</p>
+            ) : (
+              <p className="text-gray-400 text-sm italic">Nenhum contexto definido.</p>
+            )}
+          </div>
+        )}
+
+        {/* Expanded view */}
+        {contextoExpanded && !editingContexto && (
+          <div className="px-6 pb-4">
+            <p className="text-gray-700 text-sm whitespace-pre-wrap">
+              {processo.contexto || (
+                <span className="text-gray-400 italic">
+                  Nenhum contexto definido. Clique no icone de edicao para descrever o caso em detalhe (partes envolvidas, tipo de acao, fatos relevantes, etc.).
+                </span>
+              )}
+            </p>
+          </div>
+        )}
+
+        {/* Editing mode */}
+        {editingContexto && (
+          <div className="px-6 pb-4">
+            <textarea
+              value={contextoDraft}
+              onChange={(e) => setContextoDraft(e.target.value)}
+              rows={8}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
+              placeholder="Descreva o caso em detalhe: partes envolvidas, tipo de acao, fatos relevantes, etc. Este texto sera usado como contexto nas analises de IA."
+              autoFocus
+            />
+            <div className="flex justify-end space-x-2 mt-2">
+              <button
+                onClick={() => {
+                  setEditingContexto(false)
+                  setContextoExpanded(false)
+                }}
+                className="inline-flex items-center px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+              >
+                <XMarkIcon className="w-4 h-4 mr-1" />
+                Cancelar
+              </button>
+              <button
+                onClick={() => updateContextoMutation.mutate(contextoDraft)}
+                disabled={updateContextoMutation.isLoading}
+                className="inline-flex items-center px-3 py-1.5 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50"
+              >
+                <CheckIcon className="w-4 h-4 mr-1" />
+                {updateContextoMutation.isLoading ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Quick actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Link
@@ -107,7 +223,7 @@ export default function ProcessoDetailPage() {
               <ChatBubbleLeftRightIcon className="w-6 h-6 text-purple-600" />
             </div>
             <div className="ml-4">
-              <p className="font-medium text-gray-900">Chat RAG</p>
+              <p className="font-medium text-gray-900">Chat</p>
               <p className="text-sm text-gray-500">Conversar sobre o processo</p>
             </div>
           </div>

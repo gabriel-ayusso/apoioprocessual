@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 
 class TransacaoUpdate(BaseModel):
+    data: Optional[date] = None
     pagador: Optional[str] = None
     beneficiario: Optional[str] = None
     categoria: Optional[str] = None

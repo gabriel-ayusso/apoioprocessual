@@ -45,6 +45,7 @@ async def build_processo_response(processo: Processo, db: AsyncSession) -> Proce
         numero=processo.numero,
         titulo=processo.titulo,
         descricao=processo.descricao,
+        contexto=processo.contexto,
         status=processo.status,
         created_at=processo.created_at,
         updated_at=processo.updated_at,
@@ -105,6 +106,7 @@ async def create_processo(
         numero=request.numero,
         titulo=request.titulo,
         descricao=request.descricao,
+        contexto=request.contexto,
     )
     db.add(processo)
     await db.commit()
@@ -144,6 +146,8 @@ async def update_processo(
         processo.titulo = request.titulo
     if request.descricao is not None:
         processo.descricao = request.descricao
+    if request.contexto is not None:
+        processo.contexto = request.contexto
     if request.status is not None:
         processo.status = request.status
 

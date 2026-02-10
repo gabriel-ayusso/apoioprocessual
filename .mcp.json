@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "type": "stdio",
+      "command": "postgres-mcp",
+      "args": [
+        "--access-mode=unrestricted"
+      ],
+      "env": {
+        "DATABASE_URI": "postgresql://postgres:admrss@localhost:5432/legal_assistant"
+      }
+    }
+  }
+}
