@@ -91,9 +91,6 @@ export default function LoginPage() {
           </div>
         </form>
 
-        <p className="text-center text-xs text-gray-500">
-          Credenciais de teste: admin@apoioprocessual.com / admin123
-        </p>
       </div>
     </div>
   )

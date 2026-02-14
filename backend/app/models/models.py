@@ -5,13 +5,26 @@ from typing import Optional, List
 
 from sqlalchemy import (
     String, Text, Boolean, Integer, Float, Date, DateTime,
-    ForeignKey, ARRAY, Numeric, BigInteger
+    ForeignKey, ARRAY, Numeric, BigInteger, Enum as SAEnum
 )
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import UUID, JSONB, ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
+
+# PostgreSQL native ENUMs (must match init.sql definitions)
+DocTypeEnum = ENUM(
+    'whatsapp_chat', 'whatsapp_audio', 'email', 'extrato_bancario',
+    'processo_judicial', 'comprovante', 'contrato', 'foto_print',
+    'audio', 'outro',
+    name='doc_type', create_type=False,
+)
+
+DocStatusEnum = ENUM(
+    'uploaded', 'processing', 'processed', 'error',
+    name='doc_status', create_type=False,
+)
 
 
 class User(Base):
@@ -78,7 +91,7 @@ class Document(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     processo_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("processos.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    tipo: Mapped[str] = mapped_column(String(30), nullable=False)
+    tipo: Mapped[str] = mapped_column(DocTypeEnum, nullable=False)
     titulo: Mapped[str] = mapped_column(Text, nullable=False)
     descricao: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     participantes: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text), nullable=True)
@@ -87,7 +100,7 @@ class Document(Base):
     arquivo_nome: Mapped[str] = mapped_column(Text, nullable=False)
     arquivo_mime: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     arquivo_tamanho: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="uploaded")
+    status: Mapped[str] = mapped_column(DocStatusEnum, default="uploaded")
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
     texto_extraido: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

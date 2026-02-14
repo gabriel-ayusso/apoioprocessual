@@ -11,16 +11,23 @@ import {
   XMarkIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  UserPlusIcon,
+  TrashIcon,
+  UsersIcon,
 } from '@heroicons/react/24/outline'
 import toast from 'react-hot-toast'
-import { processosApi, documentsApi } from '../api/client'
+import { processosApi, documentsApi, adminApi } from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function ProcessoDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
   const [editingContexto, setEditingContexto] = useState(false)
   const [contextoExpanded, setContextoExpanded] = useState(false)
   const [contextoDraft, setContextoDraft] = useState('')
+  const [shareUserId, setShareUserId] = useState('')
+  const [shareRole, setShareRole] = useState('viewer')
 
   const { data: processoData, isLoading } = useQuery(
     ['processo', id],
@@ -49,6 +56,43 @@ export default function ProcessoDetailPage() {
   )
 
   const processo = processoData?.data
+  const isAdminOrOwner = user?.role === 'admin' || user?.id === processo?.owner_id
+
+  const { data: usersData } = useQuery(
+    ['users'],
+    () => adminApi.listUsers(0, 200),
+    { enabled: isAdminOrOwner }
+  )
+
+  const shareMutation = useMutation(
+    ({ userId, role }: { userId: string; role: string }) =>
+      processosApi.share(id!, userId, role),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['processo', id])
+        setShareUserId('')
+        setShareRole('viewer')
+        toast.success('Acesso compartilhado com sucesso!')
+      },
+      onError: () => {
+        toast.error('Erro ao compartilhar acesso')
+      },
+    }
+  )
+
+  const unshareMutation = useMutation(
+    (userId: string) => processosApi.unshare(id!, userId),
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['processo', id])
+        toast.success('Acesso removido com sucesso!')
+      },
+      onError: () => {
+        toast.error('Erro ao remover acesso')
+      },
+    }
+  )
+
   const documents = docsData?.data?.documents || []
 
   if (isLoading) {
@@ -302,30 +346,107 @@ export default function ProcessoDetailPage() {
         </div>
       </div>
 
-      {/* Shared users */}
-      {processo.shared_users && processo.shared_users.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase mb-4">
-            Compartilhado com
+      {/* Gerenciar Acesso */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center space-x-2 mb-4">
+          <UsersIcon className="w-5 h-5 text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-500 uppercase">
+            {isAdminOrOwner ? 'Gerenciar Acesso' : 'Compartilhado com'}
           </h2>
-          <div className="space-y-2">
+        </div>
+
+        {/* Lista de usuarios com acesso */}
+        {processo.shared_users && processo.shared_users.length > 0 ? (
+          <div className="space-y-2 mb-4">
             {processo.shared_users.map((share: any) => (
               <div
                 key={share.user_id}
-                className="flex items-center justify-between"
+                className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg"
               >
                 <div>
                   <p className="font-medium text-gray-900">{share.user_name}</p>
                   <p className="text-sm text-gray-500">{share.user_email}</p>
                 </div>
-                <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full">
-                  {share.role}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded-full">
+                    {share.role}
+                  </span>
+                  {isAdminOrOwner && (
+                    <button
+                      onClick={() => unshareMutation.mutate(share.user_id)}
+                      disabled={unshareMutation.isLoading}
+                      className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                      title="Remover acesso"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-gray-400 italic mb-4">
+            Nenhum usuario compartilhado.
+          </p>
+        )}
+
+        {/* Form para adicionar acesso (admin/owner only) */}
+        {isAdminOrOwner && (
+          <div className="flex items-end space-x-2 pt-3 border-t border-gray-200">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Usuario
+              </label>
+              <select
+                value={shareUserId}
+                onChange={(e) => setShareUserId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="">Selecionar usuario...</option>
+                {(usersData?.data?.users || [])
+                  .filter((u: any) =>
+                    u.id !== processo.owner_id &&
+                    u.is_active &&
+                    !processo.shared_users?.some((s: any) => s.user_id === u.id)
+                  )
+                  .map((u: any) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.email})
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Permissao
+              </label>
+              <select
+                value={shareRole}
+                onChange={(e) => setShareRole(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
+              </select>
+            </div>
+            <button
+              onClick={() => {
+                if (!shareUserId) {
+                  toast.error('Selecione um usuario')
+                  return
+                }
+                shareMutation.mutate({ userId: shareUserId, role: shareRole })
+              }}
+              disabled={shareMutation.isLoading || !shareUserId}
+              className="inline-flex items-center px-3 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 disabled:opacity-50"
+            >
+              <UserPlusIcon className="w-4 h-4 mr-1" />
+              {shareMutation.isLoading ? 'Enviando...' : 'Compartilhar'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

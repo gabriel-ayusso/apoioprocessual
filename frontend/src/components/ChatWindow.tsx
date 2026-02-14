@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { PaperAirplaneIcon, DocumentTextIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { useConversation, useChat } from '../hooks/useChat'
 
@@ -42,6 +44,14 @@ function SourcesList({ sources }: { sources: Source[] }) {
   )
 }
 
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-headings:text-gray-800 prose-strong:text-gray-800 prose-blockquote:border-primary-300 prose-blockquote:text-gray-600 prose-table:text-sm prose-th:bg-gray-50 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+    </div>
+  )
+}
+
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user'
 
@@ -54,7 +64,11 @@ function MessageBubble({ message }: { message: Message }) {
             : 'bg-white border border-gray-200'
         }`}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <MarkdownContent content={message.content} />
+        )}
         {!isUser && message.sources && <SourcesList sources={message.sources} />}
       </div>
     </div>
@@ -154,7 +168,7 @@ export default function ChatWindow({ conversationId }: ChatWindowProps) {
             {streamingContent && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] rounded-lg px-4 py-3 bg-white border border-gray-200">
-                  <p className="whitespace-pre-wrap">{streamingContent}</p>
+                  <MarkdownContent content={streamingContent} />
                   <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-0.5 align-text-bottom" />
                   {streamingSources.length > 0 && (
                     <SourcesList sources={streamingSources} />
