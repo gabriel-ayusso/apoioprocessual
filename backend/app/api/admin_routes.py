@@ -144,5 +144,8 @@ async def deactivate_user(
             detail="Usuario nao encontrado",
         )
 
-    user.is_active = False
+    if user.is_active:
+        user.is_active = False
+    else:
+        await db.delete(user)
     await db.commit()
