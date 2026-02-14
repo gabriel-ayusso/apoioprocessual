@@ -174,6 +174,7 @@ async def generate_embeddings(texts: list[str]) -> list[list[float]]:
         response = await openai_client.embeddings.create(
             model=settings.EMBEDDING_MODEL,
             input=batch,
+            dimensions=settings.EMBEDDING_DIMENSIONS,
         )
         all_embeddings.extend([item.embedding for item in response.data])
 

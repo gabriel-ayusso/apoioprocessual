@@ -14,7 +14,8 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: str = ""
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_MODEL: str = "text-embedding-3-large"
+    EMBEDDING_DIMENSIONS: int = 1536
     CHAT_MODEL: str = "gpt-5-mini"          # gpt-4o-mini
     PROCESSING_MODEL: str = "gpt-5-mini"    # gpt-5-nano
 
