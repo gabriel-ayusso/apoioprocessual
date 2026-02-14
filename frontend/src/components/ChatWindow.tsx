@@ -62,20 +62,18 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 function StreamingIndicator({ phase }: { phase: string }) {
-  if (phase === 'searching') {
-    return (
-      <div className="flex justify-start">
-        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-          <div className="flex items-center space-x-2 text-gray-500">
-            <MagnifyingGlassIcon className="w-4 h-4 animate-pulse" />
-            <span className="text-sm">Buscando nos documentos...</span>
-          </div>
+  const label = phase === 'generating' ? 'Gerando resposta...' : 'Buscando nos documentos...'
+
+  return (
+    <div className="flex justify-start">
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+        <div className="flex items-center space-x-2 text-gray-500">
+          <MagnifyingGlassIcon className="w-4 h-4 animate-pulse" />
+          <span className="text-sm">{label}</span>
         </div>
       </div>
-    )
-  }
-
-  return null
+    </div>
+  )
 }
 
 export default function ChatWindow({ conversationId }: ChatWindowProps) {
@@ -147,9 +145,9 @@ export default function ChatWindow({ conversationId }: ChatWindowProps) {
               </div>
             )}
 
-            {/* Streaming phase indicator */}
-            {streamingPhase === 'searching' && (
-              <StreamingIndicator phase="searching" />
+            {/* Streaming phase indicator — visible until first token arrives */}
+            {streamingPhase && !streamingContent && (
+              <StreamingIndicator phase={streamingPhase} />
             )}
 
             {/* Streaming assistant response */}
