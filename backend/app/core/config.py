@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     # RAG Settings
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 50
-    SIMILARITY_TOP_K: int = 10
+    SIMILARITY_TOP_K: int = 5
+    SIMILARITY_THRESHOLD: float = 0.3
 
     # AWS S3
     AWS_ACCESS_KEY_ID: str = ""

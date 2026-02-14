@@ -128,6 +128,96 @@ export const chatApi = {
   getSources: (messageId: string) => api.get(`/chat/sources/${messageId}`),
 }
 
+// SSE Stream helpers
+export interface SSECallbacks {
+  onStatus?: (phase: string) => void
+  onToken?: (content: string) => void
+  onSources?: (sources: Array<{ doc_titulo: string; doc_tipo: string; documento_id: string; similarity: number }>) => void
+  onDone?: () => void
+  onError?: (error: Error) => void
+}
+
+export async function sendMessageStream(
+  conversationId: string,
+  content: string,
+  callbacks: SSECallbacks,
+): Promise<void> {
+  const token = localStorage.getItem('access_token')
+
+  const response = await fetch('/api/chat/message/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ conversation_id: conversationId, content }),
+  })
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem('access_token')
+      window.location.href = '/login'
+      return
+    }
+    throw new Error(`Stream failed: ${response.status}`)
+  }
+
+  const reader = response.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // Parse SSE events (split by double newline)
+      const parts = buffer.split('\n\n')
+      buffer = parts.pop() || ''
+
+      for (const part of parts) {
+        if (!part.trim()) continue
+
+        const lines = part.split('\n')
+        let eventType = ''
+        let eventData = ''
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7)
+          if (line.startsWith('data: ')) eventData = line.slice(6)
+        }
+
+        if (!eventType || !eventData) continue
+
+        try {
+          const data = JSON.parse(eventData)
+
+          switch (eventType) {
+            case 'status':
+              callbacks.onStatus?.(data.phase)
+              break
+            case 'token':
+              callbacks.onToken?.(data.content)
+              break
+            case 'sources':
+              callbacks.onSources?.(data.sources)
+              break
+            case 'done':
+              callbacks.onDone?.()
+              break
+          }
+        } catch {
+          // Skip malformed events
+        }
+      }
+    }
+  } catch (error) {
+    callbacks.onError?.(error instanceof Error ? error : new Error(String(error)))
+  }
+}
+
 // Transacoes API
 export const transacoesApi = {
   list: (processoId: string, params?: Record<string, unknown>) =>

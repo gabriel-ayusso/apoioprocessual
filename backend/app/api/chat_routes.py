@@ -1,10 +1,14 @@
+import asyncio
+import json
 from uuid import UUID
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.models import User, Conversation, Message, Processo
 from app.schemas.chat import (
@@ -12,9 +16,55 @@ from app.schemas.chat import (
     MessageCreate, MessageResponse, ChatResponse, MessageHistoryResponse, SourceInfo
 )
 from app.api.deps import get_current_user, get_processo_with_access
-from app.services.rag_engine import chat as rag_chat
+from app.services.rag_engine import chat as rag_chat, chat_stream as rag_chat_stream
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+settings = get_settings()
+
+
+async def _generate_title(conversation_id: UUID, content: str):
+    """Generate conversation title in background (separate DB session)."""
+    from app.core.database import AsyncSessionLocal
+    from openai import AsyncOpenAI
+
+    _openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+    async with AsyncSessionLocal() as db:
+        try:
+            result = await db.execute(
+                select(Conversation).where(Conversation.id == conversation_id)
+            )
+            conversation = result.scalar_one_or_none()
+            if not conversation:
+                return
+
+            if conversation.titulo and conversation.titulo != "Nova conversa":
+                return
+
+            title_resp = await _openai.chat.completions.create(
+                model=settings.PROCESSING_MODEL,
+                messages=[
+                    {"role": "system", "content": "Gere um titulo curto (maximo 6 palavras) em portugues para uma conversa que comeca com a seguinte pergunta. Responda APENAS com o titulo, sem aspas ou pontuacao final."},
+                    {"role": "user", "content": content},
+                ],
+                temperature=1,
+                max_completion_tokens=30,
+            )
+            raw_title = title_resp.choices[0].message.content
+            if isinstance(raw_title, list):
+                raw_title = "".join(
+                    p.get("text", "") if isinstance(p, dict) else str(p)
+                    for p in raw_title
+                )
+            conversation.titulo = (raw_title or content[:60]).strip()
+            await db.commit()
+        except Exception:
+            conversation.titulo = content[:60]
+            try:
+                await db.commit()
+            except Exception:
+                pass
 
 
 @router.get("/conversations", response_model=ConversationListResponse)
@@ -211,6 +261,7 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Non-streaming message endpoint (kept for Telegram and backward compatibility)."""
     # Get conversation
     result = await db.execute(
         select(Conversation).where(Conversation.id == request.conversation_id)
@@ -283,35 +334,11 @@ async def send_message(
         metadata_={"sources": [s.model_dump() for s in sources]},
     )
     db.add(assistant_message)
-
-    # Auto-generate conversation title on first message
-    if not conversation.titulo or conversation.titulo == "Nova conversa":
-        try:
-            from openai import AsyncOpenAI
-            from app.core.config import get_settings
-            _settings = get_settings()
-            _openai = AsyncOpenAI(api_key=_settings.OPENAI_API_KEY)
-            title_resp = await _openai.chat.completions.create(
-                model=_settings.PROCESSING_MODEL,
-                messages=[
-                    {"role": "system", "content": "Gere um titulo curto (maximo 6 palavras) em portugues para uma conversa que comeca com a seguinte pergunta. Responda APENAS com o titulo, sem aspas ou pontuacao final."},
-                    {"role": "user", "content": request.content},
-                ],
-                temperature=1,
-                max_completion_tokens=30,
-            )
-            raw_title = title_resp.choices[0].message.content
-            if isinstance(raw_title, list):
-                raw_title = "".join(
-                    p.get("text", "") if isinstance(p, dict) else str(p)
-                    for p in raw_title
-                )
-            conversation.titulo = (raw_title or request.content[:60]).strip()
-        except Exception:
-            conversation.titulo = request.content[:60]
-
     await db.commit()
     await db.refresh(assistant_message)
+
+    # Generate title in background
+    asyncio.create_task(_generate_title(conversation.id, request.content))
 
     return ChatResponse(
         user_message=MessageResponse(
@@ -336,6 +363,112 @@ async def send_message(
             sources=sources,
         ),
         sources=sources,
+    )
+
+
+@router.post("/message/stream")
+async def send_message_stream(
+    request: MessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Streaming message endpoint using Server-Sent Events."""
+    # Get conversation
+    result = await db.execute(
+        select(Conversation).where(Conversation.id == request.conversation_id)
+    )
+    conversation = result.scalar_one_or_none()
+
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversa nao encontrada")
+
+    # Verify access
+    await get_processo_with_access(conversation.processo_id, db, current_user)
+
+    # Get conversation history
+    history_result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == request.conversation_id)
+        .order_by(Message.created_at)
+    )
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in history_result.scalars().all()
+    ]
+
+    # Save user message
+    user_message = Message(
+        conversation_id=request.conversation_id,
+        role="user",
+        content=request.content,
+    )
+    db.add(user_message)
+    await db.commit()
+    await db.refresh(user_message)
+
+    # Fetch processo contexto
+    processo_result = await db.execute(
+        select(Processo).where(Processo.id == conversation.processo_id)
+    )
+    processo = processo_result.scalar_one_or_none()
+    processo_contexto = processo.contexto if processo else None
+
+    async def event_generator():
+        rag_result_data = None
+
+        async for event in rag_chat_stream(
+            query=request.content,
+            conversation_history=history,
+            db=db,
+            processo_id=conversation.processo_id,
+            processo_contexto=processo_contexto,
+        ):
+            # Capture the done event data for saving
+            if event.startswith("event: done"):
+                lines = event.strip().split("\n")
+                for line in lines:
+                    if line.startswith("data: "):
+                        rag_result_data = json.loads(line[6:])
+                        break
+
+            yield event
+
+        # Save assistant message after streaming completes
+        if rag_result_data:
+            sources = [
+                SourceInfo(
+                    doc_titulo=s["doc_titulo"],
+                    doc_tipo=s["doc_tipo"],
+                    documento_id=s["documento_id"],
+                    similarity=s["similarity"],
+                )
+                for s in rag_result_data["sources"]
+            ]
+
+            assistant_message = Message(
+                conversation_id=request.conversation_id,
+                role="assistant",
+                content=rag_result_data["answer"],
+                chunks_usados=[UUID(c) for c in rag_result_data["chunks_used"]],
+                tokens_input=rag_result_data["tokens_input"],
+                tokens_output=rag_result_data["tokens_output"],
+                custo_estimado=rag_result_data["cost_usd"],
+                metadata_={"sources": [s.model_dump() for s in sources]},
+            )
+            db.add(assistant_message)
+            await db.commit()
+
+        # Generate title in background
+        asyncio.create_task(_generate_title(conversation.id, request.content))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

@@ -118,7 +118,7 @@ CREATE TABLE chunks (
 
 CREATE INDEX idx_chunks_documento ON chunks(documento_id);
 CREATE INDEX idx_chunks_embedding ON chunks
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- ============================================
 -- TRANSACOES FINANCEIRAS

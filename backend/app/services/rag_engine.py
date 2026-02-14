@@ -1,4 +1,7 @@
+import json
 from uuid import UUID
+from typing import AsyncGenerator
+
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -33,6 +36,11 @@ Ao responder, use o formato:
 [Fonte: nome do documento, data] para cada citacao."""
 
 
+def _format_sse(event: str, data: dict) -> str:
+    """Format a Server-Sent Event."""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 async def search_similar_chunks(
     query: str,
     db: AsyncSession,
@@ -44,7 +52,10 @@ async def search_similar_chunks(
     embeddings = await generate_embeddings([query])
     query_embedding = embeddings[0]
 
-    # Build query with optional processo filter
+    # Set probes for better IVFFlat accuracy (ignored if using HNSW)
+    await db.execute(text("SET ivfflat.probes = 10"))
+
+    # Build query with similarity threshold filter
     if processo_id:
         sql = text("""
             SELECT
@@ -62,6 +73,7 @@ async def search_similar_chunks(
             JOIN documents d ON c.documento_id = d.id
             WHERE d.status = 'processed'
               AND d.processo_id = :processo_id
+              AND 1 - (c.embedding <=> CAST(:embedding AS vector)) >= :threshold
             ORDER BY c.embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
         """)
@@ -69,6 +81,7 @@ async def search_similar_chunks(
             "embedding": str(query_embedding),
             "processo_id": str(processo_id),
             "top_k": top_k,
+            "threshold": settings.SIMILARITY_THRESHOLD,
         }
     else:
         sql = text("""
@@ -86,12 +99,14 @@ async def search_similar_chunks(
             FROM chunks c
             JOIN documents d ON c.documento_id = d.id
             WHERE d.status = 'processed'
+              AND 1 - (c.embedding <=> CAST(:embedding AS vector)) >= :threshold
             ORDER BY c.embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
         """)
         params = {
             "embedding": str(query_embedding),
             "top_k": top_k,
+            "threshold": settings.SIMILARITY_THRESHOLD,
         }
 
     result = await db.execute(sql, params)
@@ -133,22 +148,13 @@ def build_context(chunks: list[dict]) -> str:
     return "\n".join(context_parts)
 
 
-async def chat(
+def _build_messages(
     query: str,
     conversation_history: list[dict],
-    db: AsyncSession,
-    processo_id: UUID = None,
+    context: str,
     processo_contexto: str = None,
-) -> dict:
-    """RAG chat: search relevant chunks, build context, generate response."""
-
-    # 1. Search similar chunks (filtered by processo if provided)
-    chunks = await search_similar_chunks(query, db, processo_id=processo_id)
-
-    # 2. Build context
-    context = build_context(chunks)
-
-    # 3. Build messages
+) -> list[dict]:
+    """Build the messages list for the LLM call."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # Add conversation history (last 10 messages)
@@ -164,7 +170,26 @@ async def chat(
     user_message = "\n\n".join(parts)
     messages.append({"role": "user", "content": user_message})
 
-    # 4. Call LLM
+    return messages
+
+
+async def chat(
+    query: str,
+    conversation_history: list[dict],
+    db: AsyncSession,
+    processo_id: UUID = None,
+    processo_contexto: str = None,
+) -> dict:
+    """RAG chat: search relevant chunks, build context, generate response (non-streaming)."""
+
+    # 1. Search similar chunks
+    chunks = await search_similar_chunks(query, db, processo_id=processo_id)
+
+    # 2. Build context and messages
+    context = build_context(chunks)
+    messages = _build_messages(query, conversation_history, context, processo_contexto)
+
+    # 3. Call LLM
     response = await openai_client.chat.completions.create(
         model=settings.CHAT_MODEL,
         messages=messages,
@@ -172,16 +197,9 @@ async def chat(
         max_completion_tokens=4000,
     )
 
-    # Debug: log full response structure
     choice = response.choices[0]
-    print(f"[RAG DEBUG] finish_reason={choice.finish_reason}")
-    print(f"[RAG DEBUG] message type={type(choice.message)}")
-    print(f"[RAG DEBUG] message keys={vars(choice.message).keys()}")
-    print(f"[RAG DEBUG] message content type={type(choice.message.content)}")
-    print(f"[RAG DEBUG] message content repr={repr(choice.message.content)[:500]}")
-    print(f"[RAG DEBUG] full message vars={vars(choice.message)}")
 
-    # Extract content — handle string, list of parts, or None
+    # Extract content
     raw_content = choice.message.content
     if raw_content is None:
         answer = ""
@@ -193,11 +211,7 @@ async def chat(
     else:
         answer = str(raw_content)
 
-    print(f"[RAG DEBUG] final answer length={len(answer)}, first 200 chars={answer[:200]}")
-
     usage = response.usage
-
-    # Cost estimation (gpt-4o-mini prices)
     cost = (usage.prompt_tokens * 0.15 / 1_000_000) + (
         usage.completion_tokens * 0.60 / 1_000_000
     )
@@ -218,3 +232,77 @@ async def chat(
         "tokens_output": usage.completion_tokens,
         "cost_usd": round(cost, 6),
     }
+
+
+async def chat_stream(
+    query: str,
+    conversation_history: list[dict],
+    db: AsyncSession,
+    processo_id: UUID = None,
+    processo_contexto: str = None,
+) -> AsyncGenerator[str, None]:
+    """RAG chat with SSE streaming: yields Server-Sent Events as strings."""
+
+    # Phase 1: Searching
+    yield _format_sse("status", {"phase": "searching"})
+
+    chunks = await search_similar_chunks(query, db, processo_id=processo_id)
+    context = build_context(chunks)
+    messages = _build_messages(query, conversation_history, context, processo_contexto)
+
+    # Phase 2: Generating
+    yield _format_sse("status", {"phase": "generating"})
+
+    # Stream from LLM
+    full_answer = ""
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    stream = await openai_client.chat.completions.create(
+        model=settings.CHAT_MODEL,
+        messages=messages,
+        temperature=1,
+        max_completion_tokens=4000,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    async for chunk in stream:
+        # Extract usage from the final chunk
+        if chunk.usage:
+            total_prompt_tokens = chunk.usage.prompt_tokens
+            total_completion_tokens = chunk.usage.completion_tokens
+
+        if chunk.choices and chunk.choices[0].delta.content:
+            token = chunk.choices[0].delta.content
+            full_answer += token
+            yield _format_sse("token", {"content": token})
+
+    # Calculate cost
+    cost = (total_prompt_tokens * 0.15 / 1_000_000) + (
+        total_completion_tokens * 0.60 / 1_000_000
+    )
+
+    # Build sources
+    sources = [
+        {
+            "doc_titulo": c["doc_titulo"],
+            "doc_tipo": c["doc_tipo"],
+            "similarity": c["similarity"],
+            "documento_id": c["documento_id"],
+        }
+        for c in chunks
+    ]
+
+    # Yield final metadata
+    yield _format_sse("sources", {"sources": sources})
+
+    # Yield done with result data for saving
+    yield _format_sse("done", {
+        "answer": full_answer,
+        "chunks_used": [c["id"] for c in chunks],
+        "sources": sources,
+        "tokens_input": total_prompt_tokens,
+        "tokens_output": total_completion_tokens,
+        "cost_usd": round(cost, 6),
+    })

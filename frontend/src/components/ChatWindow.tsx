@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { PaperAirplaneIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
+import { PaperAirplaneIcon, DocumentTextIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import { useConversation, useChat } from '../hooks/useChat'
 
 interface Source {
@@ -21,17 +21,81 @@ interface ChatWindowProps {
   conversationId: string
 }
 
+function SourcesList({ sources }: { sources: Source[] }) {
+  if (!sources.length) return null
+
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-200">
+      <p className="text-xs font-medium text-gray-500 mb-2">Fontes:</p>
+      <div className="space-y-1">
+        {sources.slice(0, 3).map((source, idx) => (
+          <div key={idx} className="flex items-center text-xs text-gray-600">
+            <DocumentTextIcon className="w-3 h-3 mr-1 flex-shrink-0" />
+            <span className="truncate">{source.doc_titulo}</span>
+            <span className="ml-1 text-gray-400">
+              ({(source.similarity * 100).toFixed(0)}%)
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MessageBubble({ message }: { message: Message }) {
+  const isUser = message.role === 'user'
+
+  return (
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div
+        className={`max-w-[80%] rounded-lg px-4 py-3 ${
+          isUser
+            ? 'bg-primary-600 text-white'
+            : 'bg-white border border-gray-200'
+        }`}
+      >
+        <p className="whitespace-pre-wrap">{message.content}</p>
+        {!isUser && message.sources && <SourcesList sources={message.sources} />}
+      </div>
+    </div>
+  )
+}
+
+function StreamingIndicator({ phase }: { phase: string }) {
+  if (phase === 'searching') {
+    return (
+      <div className="flex justify-start">
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+          <div className="flex items-center space-x-2 text-gray-500">
+            <MagnifyingGlassIcon className="w-4 h-4 animate-pulse" />
+            <span className="text-sm">Buscando nos documentos...</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return null
+}
+
 export default function ChatWindow({ conversationId }: ChatWindowProps) {
   const [input, setInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { data, isLoading: isLoadingHistory } = useConversation(conversationId)
-  const { sendMessage, isLoading: isSending } = useChat(conversationId)
+  const {
+    sendMessage,
+    isLoading: isSending,
+    streamingContent,
+    streamingPhase,
+    streamingSources,
+    pendingUserMessage,
+  } = useChat(conversationId)
 
   const messages: Message[] = data?.messages || []
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, streamingContent, streamingPhase, pendingUserMessage])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,11 +113,13 @@ export default function ChatWindow({ conversationId }: ChatWindowProps) {
     )
   }
 
+  const showEmptyState = messages.length === 0 && !pendingUserMessage
+
   return (
     <div className="flex flex-col h-full">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 ? (
+        {showEmptyState ? (
           <div className="text-center text-gray-500 py-12">
             <DocumentTextIcon className="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <p>Inicie uma conversa para analisar os documentos do processo.</p>
@@ -62,59 +128,43 @@ export default function ChatWindow({ conversationId }: ChatWindowProps) {
             </p>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                  message.role === 'user'
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-white border border-gray-200'
-                }`}
-              >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+          <>
+            {/* Persisted messages */}
+            {messages.map((message) => (
+              <MessageBubble key={message.id} message={message} />
+            ))}
 
-                {/* Sources */}
-                {message.sources && message.sources.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-200">
-                    <p className="text-xs font-medium text-gray-500 mb-2">
-                      Fontes:
-                    </p>
-                    <div className="space-y-1">
-                      {message.sources.slice(0, 3).map((source, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center text-xs text-gray-600"
-                        >
-                          <DocumentTextIcon className="w-3 h-3 mr-1" />
-                          <span className="truncate">{source.doc_titulo}</span>
-                          <span className="ml-1 text-gray-400">
-                            ({(source.similarity * 100).toFixed(0)}%)
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+            {/* Pending user message (optimistic — only show if server data doesn't already include it) */}
+            {pendingUserMessage && !(
+              messages.length > 0 &&
+              messages[messages.length - 1].role === 'user' &&
+              messages[messages.length - 1].content === pendingUserMessage
+            ) && (
+              <div className="flex justify-end">
+                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-primary-600 text-white">
+                  <p className="whitespace-pre-wrap">{pendingUserMessage}</p>
+                </div>
               </div>
-            </div>
-          ))
-        )}
+            )}
 
-        {isSending && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-100" />
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce delay-200" />
+            {/* Streaming phase indicator */}
+            {streamingPhase === 'searching' && (
+              <StreamingIndicator phase="searching" />
+            )}
+
+            {/* Streaming assistant response */}
+            {streamingContent && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] rounded-lg px-4 py-3 bg-white border border-gray-200">
+                  <p className="whitespace-pre-wrap">{streamingContent}</p>
+                  <span className="inline-block w-1.5 h-4 bg-primary-500 animate-pulse ml-0.5 align-text-bottom" />
+                  {streamingSources.length > 0 && (
+                    <SourcesList sources={streamingSources} />
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
         <div ref={messagesEndRef} />
